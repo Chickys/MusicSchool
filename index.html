@@ -1,0 +1,818 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>MusicSchool</title>
+    
+    <link rel="manifest" href="manifest.json">
+    <link rel="stylesheet" href="style.css">
+    <link href="https://fonts.googleapis.com/css2?family=Montserrat:wght@400;700;900&family=Syne:wght@400;700;800;900&family=DM+Sans:ital,wght@0,300;0,400;0,500;1,300&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
+
+    <style>
+        /* ===== TIROIR LATÉRAL ===== */
+        #drawer-overlay {
+            display: none;
+            position: fixed;
+            inset: 0;
+            background: rgba(0,0,0,0.6);
+            z-index: 8888;
+            backdrop-filter: blur(2px);
+        }
+        #drawer-overlay.open { display: block; }
+
+        #side-drawer {
+            position: fixed;
+            top: 0; left: 0;
+            width: 260px; height: 100%;
+            background: linear-gradient(180deg, #0d0018 0%, #0a0a0a 100%);
+            border-right: 1px solid #8a2be244;
+            z-index: 9999;
+            transform: translateX(-100%);
+            transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+            display: flex;
+            flex-direction: column;
+            padding: 0;
+            overflow: hidden;
+        }
+        #side-drawer.open { transform: translateX(0); }
+
+        .drawer-header {
+            padding: 50px 20px 20px 20px;
+            border-bottom: 1px solid #1a1a1a;
+        }
+        .drawer-logo {
+            font-size: 1.4rem;
+            font-weight: 900;
+            color: #fff;
+            letter-spacing: -0.5px;
+        }
+        .drawer-logo span { color: #8a2be2; }
+
+        .drawer-user {
+            margin-top: 12px;
+            font-size: 0.8rem;
+            color: #555;
+        }
+        .drawer-user strong { color: #888; }
+
+        .drawer-section-title {
+            font-size: 0.65rem;
+            color: #444;
+            font-weight: 900;
+            letter-spacing: 1.5px;
+            padding: 16px 20px 8px 20px;
+        }
+
+        .drawer-item {
+            display: flex;
+            align-items: center;
+            gap: 14px;
+            padding: 13px 20px;
+            cursor: pointer;
+            transition: all 0.2s;
+            border-left: 3px solid transparent;
+            color: #666;
+            font-size: 0.88rem;
+            font-weight: 700;
+        }
+        .drawer-item:hover, .drawer-item.active {
+            background: #8a2be211;
+            color: #fff;
+            border-left-color: #8a2be2;
+        }
+        .drawer-item i { width: 18px; text-align: center; font-size: 0.9rem; }
+
+        .drawer-divider {
+            height: 1px;
+            background: #1a1a1a;
+            margin: 8px 0;
+        }
+
+        .drawer-bottom {
+            margin-top: auto;
+            border-top: 1px solid #1a1a1a;
+            padding: 12px 0;
+        }
+
+        /* Boutons gauche header — un seul visible à la fois */
+        #drawer-btn, #back-btn {
+            background: none;
+            border: none;
+            color: #fff;
+            font-size: 1.1rem;
+            cursor: pointer;
+            padding: 8px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            opacity: 0.8;
+            transition: opacity 0.2s;
+        }
+        #drawer-btn:hover, #back-btn:hover { opacity: 1; }
+        #drawer-btn i { transition: transform 0.3s; }
+        #drawer-btn.open i { transform: rotate(180deg); }
+        #back-btn.hidden { display: none !important; }
+        #drawer-btn.hidden { display: none !important; }
+
+        /* Cacher le header quand le player est ouvert */
+        body.player-open header,
+        body.player-open #drawer-overlay,
+        body.player-open #side-drawer {
+            display: none !important;
+        }
+    </style>
+    <style>
+        #main-grid { overflow-y: auto; -webkit-overflow-scrolling: touch; }
+
+        /* 🎵 FOND DOODLE — motif discret façon WhatsApp, thème musique classique.
+           Calque indépendant, sous tout le contenu (z-index:0), fixe pour ne pas
+           scroller avec le contenu. Opacité volontairement basse (7%) pour ne
+           jamais gêner la lecture. */
+        #ms-bg-pattern {
+            position: fixed;
+            inset: 0;
+            z-index: 0;
+            pointer-events: none;
+            background-image: url('bg-pattern-dark.svg');
+            background-repeat: repeat;
+            background-size: 200px 200px;
+            opacity: 0.20;
+        }
+        /* Si un mode clair est ajouté plus tard, activer ce bloc (icônes
+           sombres sur fond clair) en togglant une classe sur <body> :
+        body.light-mode #ms-bg-pattern {
+            background-image: url('bg-pattern-light.svg');
+            opacity: 0.06;
+        }
+        */
+
+        /* On s'assure que le contenu principal de l'app reste au-dessus du motif.
+           🔧 FIX : #full-player et #floating-bubble ont déjà leur propre
+           position (fixed) définie ailleurs dans le code d'origine — les
+           inclure ici avec position:relative écrasait ce comportement et
+           cassait l'affichage du lecteur (il s'ouvrait en bas de page au
+           lieu de couvrir l'écran). On ne touche donc qu'au contenu qui
+           est réellement dans le flux normal de la page. */
+        #main-grid {
+            position: relative;
+            z-index: 1;
+        }
+        /* 🔧 FIX (superposition lors de la déconnexion) : en ajoutant un
+           z-index explicite à #main-grid pour le faire passer au-dessus du
+           fond doodle, on lui a accidentellement créé un nouveau contexte
+           d'empilement qui pouvait, selon les cas, passer DEVANT l'écran de
+           connexion/landing (#auth-container) au lieu de rester derrière —
+           d'où la superposition visible "Défi du jour" + "Philosophie" en
+           même temps après déconnexion. #auth-container doit TOUJOURS
+           passer au-dessus de tout le reste de l'app quand il est rempli. */
+        #auth-container {
+            position: relative;
+            z-index: 1000;
+        }
+
+        /* 🔧 Sécurité supplémentaire : on s'assure que le lecteur plein
+           écran reste TOUJOURS au-dessus du fond doodle, sans toucher à
+           son "position" (qui doit rester tel que défini ailleurs). */
+        #full-player {
+            z-index: 500;
+        }
+    </style>
+</head>
+<body>
+    <div id="ms-bg-pattern"></div>
+    <div id="auth-container"></div>
+    <div class="background-cover"></div>
+    <div class="overlay-dark"></div>
+
+    <!-- OVERLAY TIROIR -->
+    <div id="drawer-overlay" onclick="closeDrawer()"></div>
+
+    <!-- TIROIR LATÉRAL -->
+    <div id="side-drawer">
+        <div class="drawer-header">
+            <div class="drawer-logo">MusicSchool<span>.</span></div>
+            <div class="drawer-user" id="drawer-user-info">Chargement...</div>
+        </div>
+
+        <div class="drawer-section-title">MA CLASSE &amp; SÉRIE</div>
+        <div class="drawer-item" id="drawer-terminale" onclick="toggleSerieMenu('terminale')" style="display:flex;align-items:center;">
+            <i class="fas fa-graduation-cap"></i> Terminale
+            <i class="fas fa-chevron-right" id="arrow-terminale" style="margin-left:auto;font-size:0.7rem;transition:transform 0.2s;"></i>
+        </div>
+        <div id="serie-menu-terminale" style="display:none;padding:4px 0 4px 16px;">
+            <div class="drawer-item" id="drawer-tle-A" onclick="switchGradeSerieFromDrawer('terminale','A')" style="font-size:0.82rem;padding:8px 14px;">
+                <span style="font-weight:900;color:#8a2be2;font-size:1rem;">A</span>&nbsp; Littéraire
+            </div>
+            <div class="drawer-item" id="drawer-tle-D" onclick="switchGradeSerieFromDrawer('terminale','D')" style="font-size:0.82rem;padding:8px 14px;">
+                <span style="font-weight:900;color:#8a2be2;font-size:1rem;">D</span>&nbsp; Sciences naturelles
+            </div>
+        </div>
+        <div class="drawer-item" id="drawer-1ere" onclick="toggleSerieMenu('1ere')" style="display:flex;align-items:center;">
+            <i class="fas fa-book-open"></i> Première
+            <i class="fas fa-chevron-right" id="arrow-1ere" style="margin-left:auto;font-size:0.7rem;transition:transform 0.2s;"></i>
+        </div>
+        <div id="serie-menu-1ere" style="display:none;padding:4px 0 4px 16px;">
+            <div class="drawer-item" id="drawer-1ere-A" onclick="switchGradeSerieFromDrawer('1ere','A')" style="font-size:0.82rem;padding:8px 14px;">
+                <span style="font-weight:900;color:#8a2be2;font-size:1rem;">A</span>&nbsp;&nbsp;Littéraire
+            </div>
+            <div class="drawer-item" id="drawer-1ere-D" onclick="switchGradeSerieFromDrawer('1ere','D')" style="font-size:0.82rem;padding:8px 14px;">
+                <span style="font-weight:900;color:#8a2be2;font-size:1rem;">D</span>&nbsp;&nbsp;Sciences nat.
+            </div>
+        </div>
+
+        <div class="drawer-divider"></div>
+        <div class="drawer-section-title">NAVIGATION</div>
+        <div class="drawer-item" onclick="closeDrawer(); showGrades();">
+            <i class="fas fa-home"></i> Accueil
+        </div>
+        <div class="drawer-item" onclick="closeDrawer(); showProfile();">
+            <i class="fas fa-user"></i> Mon Profil
+        </div>
+
+        <div class="drawer-bottom">
+            <div class="drawer-item" onclick="closeDrawer(); logout();" style="color:#e74c3c;">
+                <i class="fas fa-sign-out-alt"></i> Se déconnecter
+            </div>
+        </div>
+    </div>
+
+    <header>
+        <button id="drawer-btn" onclick="toggleDrawer()">
+            <i class="fas fa-chevron-right"></i>
+        </button>
+        <button id="back-btn" class="hidden" onclick="goBack()">
+            <i class="fas fa-chevron-left"></i>
+        </button>
+
+        <div class="logo">MusicSchool<span class="dot">.</span></div>
+        <div id="section-title">MATIÈRES</div>
+        <button id="profile-btn" class="profile-header-btn" onclick="showProfile()" style="padding:0;overflow:hidden;border-radius:50%;width:36px;height:36px;display:flex;align-items:center;justify-content:center;">
+            <span id="header-avatar-content"><i class="fas fa-user-circle"></i></span>
+        </button>
+    </header>
+
+    <!-- Barre de recherche globale -->
+    <div id="ms-search-bar" style="display:none; padding:0 16px; margin-top:8px; position:relative; z-index:100;">
+        <div style="position:relative;">
+            <i class="fas fa-search" style="position:absolute;left:14px;top:50%;transform:translateY(-50%);color:#555;font-size:0.85rem;"></i>
+            <input id="ms-search-input" type="text" placeholder="Cours, philosophes, auteurs..."
+                oninput="smartSearch(this.value)"
+                style="width:100%;box-sizing:border-box;background:#111;border:1.5px solid #222;border-radius:30px;padding:11px 14px 11px 38px;color:#fff;font-size:0.88rem;outline:none;font-family:'Montserrat',sans-serif;">
+        </div>
+        <div id="ms-search-results" style="display:none;position:absolute;left:16px;right:16px;background:#111;border:1px solid #222;border-radius:14px;margin-top:6px;z-index:999;max-height:320px;overflow-y:auto;"></div>
+    </div>
+
+    <div id="main-grid" class="main-grid"></div>
+
+    <div id="mini-player-container" class="hidden">
+        <div id="mini-player" class="mini-player" onclick="reopenPlayer()">
+            <div class="mini-info">
+                <img id="mini-img" src="" alt="">
+                <div class="mini-text">
+                    <p id="mini-title"></p>
+                    <p id="mini-artist">Chicky on the Beat</p>
+                </div>
+            </div>
+            <div class="mini-controls">
+                <button onclick="event.stopPropagation(); handlePlayClick();">
+                    <i id="mini-play-icon" class="fas fa-play"></i>
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <div id="full-player" class="full-player hidden"></div>
+
+    <!-- Données Oracle (philosophes, citations...) -->
+    <script src="data.js"></script>
+    <!-- Firebase SDK (modules) -->
+    <script type="module" src="firebase-config.js"></script>
+    <!-- Script principal chargé après Firebase -->
+    <!-- Script principal -->
+    <script src="script.js" defer></script>
+    <!-- ═══════════════════════════════════════════════
+         ONBOARDING OVERLAY — s'affiche une seule fois
+         ═══════════════════════════════════════════════ -->
+    <style>
+      #ob-overlay {
+        position: fixed; inset: 0; z-index: 99999;
+        background: #050508;
+        display: flex; flex-direction: column;
+        overflow: hidden;
+        font-family: 'DM Sans', 'Montserrat', sans-serif;
+        -webkit-font-smoothing: antialiased;
+      }
+      #ob-overlay.ob-hidden { display: none !important; }
+
+      /* Noise */
+      #ob-overlay::before {
+        content: '';
+        position: absolute; inset: 0;
+        background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='0.04'/%3E%3C/svg%3E");
+        pointer-events: none; z-index: 0; opacity: 0.4;
+      }
+
+      /* CSS vars */
+      #ob-overlay { --v1:#7c3aed;--v2:#a855f7;--v3:#c084fc;--b1:#0ea5e9;--b2:#38bdf8;--dark:#050508;--dark2:#0d0d14;--card:#0f0f1a;--border:rgba(168,85,247,0.15);--text:#f0eeff;--muted:#5a5870; }
+
+      #ob-slides {
+        flex: 1; display: flex;
+        transition: transform 0.65s cubic-bezier(0.77,0,0.175,1);
+        will-change: transform;
+      }
+      .ob-slide {
+        min-width: 100vw; width: 100vw; height: 100%;
+        display: flex; flex-direction: column;
+        align-items: center; justify-content: center;
+        padding: 48px 28px 0;
+        position: relative; overflow: hidden;
+      }
+      .ob-grid-bg {
+        position: absolute; inset: 0;
+        background-image: linear-gradient(rgba(168,85,247,0.04) 1px,transparent 1px),linear-gradient(90deg,rgba(168,85,247,0.04) 1px,transparent 1px);
+        background-size: 40px 40px; pointer-events: none;
+      }
+      .ob-blob {
+        position: absolute; border-radius: 50%;
+        filter: blur(80px); pointer-events: none;
+      }
+
+      /* Logo pill */
+      .ob-logo-pill {
+        display: inline-flex; align-items: center; gap: 8px;
+        background: rgba(124,58,237,0.12);
+        border: 1px solid rgba(168,85,247,0.25);
+        border-radius: 100px; padding: 6px 16px 6px 10px;
+        font-family: 'Syne', sans-serif;
+        font-size: 0.8rem; font-weight: 700; color: var(--v3);
+        letter-spacing: 0.5px; margin-bottom: 32px; position: relative; z-index: 2;
+      }
+      .ob-logo-pill .ob-pdot {
+        width: 8px; height: 8px; border-radius: 50%;
+        background: var(--v2); box-shadow: 0 0 8px var(--v2);
+        animation: ob-pdot 2s ease infinite;
+      }
+      @keyframes ob-pdot { 0%,100%{transform:scale(1);opacity:1}50%{transform:scale(1.4);opacity:.6} }
+
+      /* Hero visual */
+      .ob-hero-visual {
+        position: relative; width: 180px; height: 180px;
+        margin-bottom: 36px;
+        display: flex; align-items: center; justify-content: center;
+      }
+      .ob-ring {
+        position: absolute; border-radius: 50%; border: 1px solid;
+        animation: ob-spin linear infinite;
+      }
+      .ob-ring.r1{width:170px;height:170px;border-color:rgba(168,85,247,.3);animation-duration:8s}
+      .ob-ring.r2{width:130px;height:130px;border-color:rgba(56,189,248,.2);border-style:dashed;animation-duration:12s;animation-direction:reverse}
+      .ob-ring.r3{width:190px;height:190px;border-color:rgba(124,58,237,.12);animation-duration:20s}
+      @keyframes ob-spin{from{transform:rotate(0)}to{transform:rotate(360deg)}}
+      .ob-core {
+        width:88px;height:88px;
+        background:linear-gradient(135deg,#1a0a3e,#2d1065);
+        border-radius:24px; z-index:2;
+        display:flex;align-items:center;justify-content:center;
+        box-shadow:0 0 40px rgba(124,58,237,.4),0 0 80px rgba(124,58,237,.15);
+      }
+      .ob-eq { display:flex;align-items:flex-end;gap:3px;height:32px; }
+      .ob-eqb {
+        width:4px; border-radius:2px;
+        background:linear-gradient(to top,var(--v1),var(--v3),#fff);
+        animation:ob-eq ease-in-out infinite alternate;
+      }
+      @keyframes ob-eq{from{transform:scaleY(.2)}to{transform:scaleY(1)}}
+
+      /* Headlines */
+      .ob-h1 {
+        font-family:'Syne',sans-serif; font-size:2.3rem; font-weight:900;
+        line-height:1.05; text-align:center; letter-spacing:-1px;
+        margin-bottom:14px; color:var(--text); position:relative;z-index:2;
+      }
+      .ob-h1 .ob-acc {
+        background:linear-gradient(135deg,var(--v2),var(--b2));
+        -webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text;
+      }
+      .ob-h1 .ob-dim { color:rgba(240,238,255,.45); font-size:1.8rem; display:block; }
+      .ob-p {
+        font-size:.9rem;line-height:1.65;color:var(--muted);
+        text-align:center;max-width:300px;font-weight:300;
+        position:relative;z-index:2;
+      }
+      .ob-p strong{color:var(--v3);font-weight:500;}
+
+      /* Feature grid */
+      .ob-feat-grid {
+        display:grid;grid-template-columns:1fr 1fr;gap:10px;
+        width:100%;max-width:340px;margin-bottom:24px;position:relative;z-index:2;
+      }
+      .ob-fc {
+        background:rgba(255,255,255,.03);border:1px solid var(--border);
+        border-radius:18px;padding:16px 12px;position:relative;overflow:hidden;
+      }
+      .ob-fc::before{content:'';position:absolute;top:0;left:0;right:0;height:1px;background:linear-gradient(90deg,transparent,rgba(168,85,247,.35),transparent);}
+      .ob-fc-icon{font-size:1.5rem;margin-bottom:8px;display:block;}
+      .ob-fc-title{font-family:'Syne',sans-serif;font-size:.76rem;font-weight:800;color:#fff;margin-bottom:3px;}
+      .ob-fc-desc{font-size:.66rem;color:var(--muted);line-height:1.5;font-weight:300;}
+
+      /* Pills */
+      .ob-pills{display:flex;flex-wrap:wrap;gap:7px;justify-content:center;max-width:320px;margin-bottom:24px;position:relative;z-index:2;}
+      .ob-pill{padding:6px 13px;border-radius:100px;font-size:.7rem;font-weight:600;font-family:'Syne',sans-serif;border:1px solid;letter-spacing:.3px;}
+      .ob-pill.ph{background:rgba(124,58,237,.12);border-color:rgba(168,85,247,.3);color:var(--v3);}
+      .ob-pill.fr{background:rgba(14,165,233,.1);border-color:rgba(56,189,248,.3);color:var(--b2);}
+      .ob-pill.hi{background:rgba(245,158,11,.1);border-color:rgba(245,158,11,.3);color:#fbbf24;}
+      .ob-pill.ge{background:rgba(16,185,129,.1);border-color:rgba(16,185,129,.3);color:#34d399;}
+
+      /* Stats */
+      .ob-stats{display:flex;gap:10px;width:100%;max-width:340px;margin-bottom:24px;position:relative;z-index:2;}
+      .ob-stat{flex:1;background:rgba(255,255,255,.03);border:1px solid var(--border);border-radius:16px;padding:14px 10px;text-align:center;position:relative;overflow:hidden;}
+      .ob-stat::after{content:'';position:absolute;bottom:0;left:0;right:0;height:2px;background:linear-gradient(90deg,var(--v1),var(--v2),var(--b1));}
+      .ob-stat-n{font-family:'Syne',sans-serif;font-size:1.5rem;font-weight:900;background:linear-gradient(135deg,var(--v2),var(--b2));-webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text;display:block;}
+      .ob-stat-l{font-size:.6rem;color:var(--muted);margin-top:2px;}
+
+      /* Testimonial */
+      .ob-testi{width:100%;max-width:340px;background:rgba(124,58,237,.08);border:1px solid rgba(168,85,247,.2);border-radius:18px;padding:18px;position:relative;z-index:2;}
+      .ob-testi::before{content:'"';position:absolute;top:-12px;left:18px;font-family:'Syne',sans-serif;font-size:2.8rem;font-weight:900;color:var(--v2);line-height:1;}
+      .ob-testi-txt{font-size:.8rem;line-height:1.6;color:rgba(240,238,255,.75);font-style:italic;margin-bottom:12px;font-weight:300;}
+      .ob-testi-auth{display:flex;align-items:center;gap:10px;}
+      .ob-testi-av{width:30px;height:30px;border-radius:50%;background:linear-gradient(135deg,var(--v1),var(--b1));display:flex;align-items:center;justify-content:center;font-size:.75rem;font-weight:700;color:#fff;font-family:'Syne',sans-serif;}
+      .ob-testi-name{font-size:.72rem;font-weight:600;color:#fff;font-family:'Syne',sans-serif;}
+      .ob-testi-role{font-size:.6rem;color:var(--muted);}
+      .ob-testi-stars{margin-left:auto;color:#f59e0b;font-size:.68rem;letter-spacing:1px;}
+
+      /* Plans */
+      .ob-plans{display:flex;gap:10px;width:100%;max-width:340px;margin-bottom:20px;position:relative;z-index:2;}
+      .ob-plan{flex:1;border-radius:18px;padding:18px 12px;border:1px solid var(--border);background:rgba(255,255,255,.03);text-align:center;position:relative;}
+      .ob-plan.ob-feat{background:linear-gradient(160deg,rgba(124,58,237,.22),rgba(14,165,233,.08));border-color:rgba(168,85,247,.4);}
+      .ob-plan.ob-feat::before{content:'POPULAIRE';position:absolute;top:-10px;left:50%;transform:translateX(-50%);background:linear-gradient(90deg,var(--v1),var(--b1));color:#fff;font-size:.53rem;font-weight:800;font-family:'Syne',sans-serif;letter-spacing:1px;padding:3px 10px;border-radius:100px;white-space:nowrap;}
+      .ob-plan-name{font-family:'Syne',sans-serif;font-size:.68rem;font-weight:700;color:var(--muted);letter-spacing:1px;text-transform:uppercase;margin-bottom:7px;}
+      .ob-plan-price{font-family:'Syne',sans-serif;font-size:1.7rem;font-weight:900;color:#fff;line-height:1;}
+      .ob-plan-price span{font-size:.72rem;color:var(--muted);font-weight:400;}
+      .ob-plan-feats{margin-top:10px;display:flex;flex-direction:column;gap:4px;}
+      .ob-pf{font-size:.63rem;color:rgba(240,238,255,.45);}
+      .ob-pf.ok{color:var(--v3);}
+      .ob-pf.ok::before{content:'✓ ';}
+      .ob-pf.no{text-decoration:line-through;opacity:.3;}
+
+      /* CTA button */
+      .ob-btn-cta {
+        width:100%;max-width:340px;padding:17px;
+        background:linear-gradient(135deg,var(--v1),var(--v2),var(--b1));
+        background-size:200% 200%;animation:ob-shimmer 3s ease infinite;
+        border:none;border-radius:16px;color:#fff;
+        font-family:'Syne',sans-serif;font-size:.95rem;font-weight:800;
+        letter-spacing:.5px;cursor:pointer;position:relative;z-index:2;
+        box-shadow:0 8px 28px rgba(124,58,237,.35);
+        transition:transform .15s,box-shadow .15s;
+      }
+      .ob-btn-cta:active{transform:scale(.97);box-shadow:0 4px 14px rgba(124,58,237,.2);}
+      @keyframes ob-shimmer{0%{background-position:0% 50%}50%{background-position:100% 50%}100%{background-position:0% 50%}}
+
+      .ob-btn-ghost{background:none;border:none;color:var(--muted);font-size:.78rem;font-family:'DM Sans',sans-serif;cursor:pointer;padding:10px;margin-top:4px;position:relative;z-index:2;}
+
+      /* Bottom bar */
+      #ob-bottom {
+        padding:16px 28px 32px;
+        display:flex;align-items:center;justify-content:space-between;
+        position:relative;z-index:10;flex-shrink:0;
+        background:linear-gradient(to top,#050508 60%,transparent);
+      }
+      .ob-dots{display:flex;gap:6px;align-items:center;}
+      .ob-dot{width:6px;height:6px;border-radius:100px;background:rgba(168,85,247,.2);transition:all .4s cubic-bezier(.34,1.56,.64,1);cursor:pointer;}
+      .ob-dot.active{width:22px;background:linear-gradient(90deg,var(--v1),var(--b1));box-shadow:0 0 8px rgba(168,85,247,.5);}
+      .ob-next-btn{width:50px;height:50px;border-radius:50%;background:linear-gradient(135deg,var(--v1),var(--v2));border:none;display:flex;align-items:center;justify-content:center;cursor:pointer;box-shadow:0 4px 18px rgba(124,58,237,.4);transition:transform .2s;font-size:1.2rem;color:#fff;}
+      .ob-next-btn:active{transform:scale(.92);}
+      .ob-skip-btn{font-size:.76rem;color:var(--muted);background:none;border:none;cursor:pointer;font-family:'DM Sans',sans-serif;padding:4px 0;}
+
+      /* Slide-in anim */
+      .ob-slide-in > *{animation:ob-up .5s cubic-bezier(.34,1.2,.64,1) both;}
+      .ob-slide-in > *:nth-child(1){animation-delay:.05s}
+      .ob-slide-in > *:nth-child(2){animation-delay:.12s}
+      .ob-slide-in > *:nth-child(3){animation-delay:.19s}
+      .ob-slide-in > *:nth-child(4){animation-delay:.26s}
+      .ob-slide-in > *:nth-child(5){animation-delay:.33s}
+      .ob-slide-in > *:nth-child(6){animation-delay:.40s}
+      @keyframes ob-up{from{opacity:0;transform:translateY(22px)}to{opacity:1;transform:translateY(0)}}
+
+      /* Final glow */
+      .ob-final-vis{position:relative;width:140px;height:140px;margin-bottom:28px;display:flex;align-items:center;justify-content:center;z-index:2;}
+      .ob-final-glow{position:absolute;inset:0;border-radius:50%;background:radial-gradient(circle,rgba(124,58,237,.35) 0%,transparent 70%);animation:ob-glow 2s ease infinite;}
+      @keyframes ob-glow{0%,100%{transform:scale(1);opacity:.8}50%{transform:scale(1.15);opacity:.35}}
+      .ob-final-icon{font-size:3.6rem;position:relative;z-index:2;animation:ob-float 3s ease-in-out infinite;}
+      @keyframes ob-float{0%,100%{transform:translateY(0)}50%{transform:translateY(-8px)}}
+      .ob-cta-badge{background:rgba(56,189,248,.1);border:1px solid rgba(56,189,248,.25);border-radius:100px;padding:5px 14px;font-size:.68rem;color:var(--b2);font-weight:500;margin-bottom:20px;letter-spacing:.5px;position:relative;z-index:2;}
+    </style>
+
+    <div id="ob-overlay">
+      <div id="ob-slides-wrap" style="flex:1;display:flex;flex-direction:column;overflow:hidden;">
+        <div id="ob-slides-inner" style="flex:1;display:flex;transition:transform .65s cubic-bezier(.77,0,.175,1);will-change:transform;">
+
+          <!-- SLIDE 1 — Hero -->
+          <div class="ob-slide ob-slide-in" id="ob-s0">
+            <div class="ob-grid-bg"></div>
+            <div class="ob-blob" style="width:250px;height:250px;background:#7c3aed44;top:-60px;right:-60px;"></div>
+            <div class="ob-blob" style="width:190px;height:190px;background:#0ea5e933;bottom:80px;left:-40px;"></div>
+            <div class="ob-logo-pill"><span class="ob-pdot"></span>MusicSchool · v2.0</div>
+            <div class="ob-hero-visual">
+              <svg style="position:absolute;inset:0;" viewBox="0 0 200 200">
+                <circle cx="100" cy="100" r="88" fill="none" stroke="rgba(168,85,247,0.08)" stroke-width="1.5"/>
+                <circle cx="100" cy="100" r="88" fill="none" stroke="url(#ob-ag)" stroke-width="1.5" stroke-dasharray="200 353" stroke-dashoffset="88" stroke-linecap="round"/>
+                <defs><linearGradient id="ob-ag" x1="0%" y1="0%" x2="100%" y2="0%"><stop offset="0%" stop-color="#7c3aed"/><stop offset="100%" stop-color="#38bdf8"/></linearGradient></defs>
+              </svg>
+              <div class="ob-ring r3"></div>
+              <div class="ob-ring r1"></div>
+              <div class="ob-ring r2"></div>
+              <div class="ob-core">
+                <div class="ob-eq">
+                  <div class="ob-eqb" style="height:8px;animation-duration:.4s;animation-delay:0s"></div>
+                  <div class="ob-eqb" style="height:20px;animation-duration:.5s;animation-delay:.1s"></div>
+                  <div class="ob-eqb" style="height:13px;animation-duration:.35s;animation-delay:.05s"></div>
+                  <div class="ob-eqb" style="height:26px;animation-duration:.45s;animation-delay:.15s"></div>
+                  <div class="ob-eqb" style="height:10px;animation-duration:.4s;animation-delay:.2s"></div>
+                  <div class="ob-eqb" style="height:22px;animation-duration:.55s;animation-delay:.08s"></div>
+                  <div class="ob-eqb" style="height:16px;animation-duration:.38s;animation-delay:.12s"></div>
+                </div>
+              </div>
+            </div>
+            <h1 class="ob-h1"><span class="ob-acc">Apprends</span><br><span class="ob-dim">autrement.</span></h1>
+            <p class="ob-p">Le <strong>Bac Terminale</strong> transformé en musique.<br>Philo, Français, Histoire-Geo — <strong>en trap & rap.</strong></p>
+          </div>
+
+          <!-- SLIDE 2 — Features -->
+          <div class="ob-slide" id="ob-s1">
+            <div class="ob-grid-bg"></div>
+            <div class="ob-blob" style="width:280px;height:280px;background:#a855f733;top:-80px;left:-80px;"></div>
+            <div class="ob-blob" style="width:170px;height:170px;background:#38bdf822;bottom:60px;right:-40px;"></div>
+            <h2 class="ob-h1" style="font-size:1.85rem;margin-bottom:20px;">Tout ce qu'il<br><span class="ob-acc">te faut.</span></h2>
+            <div class="ob-feat-grid">
+              <div class="ob-fc"><span class="ob-fc-icon">🎵</span><div class="ob-fc-title">Leçons Audio</div><div class="ob-fc-desc">Des cours en trap & drill</div></div>
+              <div class="ob-fc"><span class="ob-fc-icon">⚡</span><div class="ob-fc-title">Quiz Surprise</div><div class="ob-fc-desc">Teste-toi en temps réel</div></div>
+              <div class="ob-fc"><span class="ob-fc-icon">🏛️</span><div class="ob-fc-title">Philo Pro</div><div class="ob-fc-desc">Vocabulaire et philosophes</div></div>
+              <div class="ob-fc"><span class="ob-fc-icon">🏆</span><div class="ob-fc-title">Classement</div><div class="ob-fc-desc">Rivalise avec les meilleurs</div></div>
+            </div>
+            <div class="ob-pills">
+              <div class="ob-pill ph">🧠 Philosophie</div>
+              <div class="ob-pill fr">📖 Français</div>
+              <div class="ob-pill hi">📜 Histoire</div>
+              <div class="ob-pill ge">🌍 Géographie</div>
+            </div>
+          </div>
+
+          <!-- SLIDE 3 — Value props (honnête, sans faux chiffres/avis) -->
+          <div class="ob-slide" id="ob-s2">
+            <div class="ob-grid-bg"></div>
+            <div class="ob-blob" style="width:270px;height:270px;background:#7c3aed44;bottom:-60px;right:-60px;"></div>
+            <h2 class="ob-h1" style="font-size:1.95rem;margin-bottom:20px;">Pensé pour<br><span class="ob-acc">cartonner.</span></h2>
+            <div class="ob-feat-grid">
+              <div class="ob-fc"><span class="ob-fc-icon">🎧</span><div class="ob-fc-title">100% Audio</div><div class="ob-fc-desc">Révise en musique, où que tu sois</div></div>
+              <div class="ob-fc"><span class="ob-fc-icon">🇨🇮</span><div class="ob-fc-title">Programme CI</div><div class="ob-fc-desc">Adapté au Bac Terminale</div></div>
+              <div class="ob-fc"><span class="ob-fc-icon">🆓</span><div class="ob-fc-title">Gratuit</div><div class="ob-fc-desc">Commence sans rien payer</div></div>
+              <div class="ob-fc"><span class="ob-fc-icon">🚀</span><div class="ob-fc-title">Tout nouveau</div><div class="ob-fc-desc">Sois parmi les premiers</div></div>
+            </div>
+            <div class="ob-testi">
+              <p class="ob-testi-txt">MusicSchool démarre tout juste. Rejoins-nous et donne ton avis dans l'espace commentaires — l'app évolue avec ses premiers utilisateurs.</p>
+            </div>
+          </div>
+
+          <!-- SLIDE 4 — CTA -->
+          <div class="ob-slide" id="ob-s3">
+            <div class="ob-grid-bg"></div>
+            <div class="ob-blob" style="width:340px;height:340px;background:#6d28d966;top:-100px;left:50%;transform:translateX(-50%);"></div>
+            <div class="ob-final-vis"><div class="ob-final-glow"></div><div class="ob-final-icon">🎓</div></div>
+            <div class="ob-cta-badge">✦ Commence gratuitement</div>
+            <h2 class="ob-h1" style="font-size:1.95rem;margin-bottom:16px;">Ton Bac,<br><span class="ob-acc">ton tempo.</span></h2>
+            <div class="ob-plans">
+              <div class="ob-plan">
+                <div class="ob-plan-name">Free</div>
+                <div class="ob-plan-price">0<span> FCFA</span></div>
+                <div class="ob-plan-feats">
+                  <div class="ob-pf ok">Leçons de base</div>
+                  <div class="ob-pf ok">Quiz gratuits</div>
+                  <div class="ob-pf no">Premium</div>
+                  <div class="ob-pf no">Hors-ligne</div>
+                </div>
+              </div>
+              <div class="ob-plan ob-feat">
+                <div class="ob-plan-name">Premium</div>
+                <div class="ob-plan-price">500<span>/mois</span></div>
+                <div class="ob-plan-feats">
+                  <div class="ob-pf ok">Tout illimité</div>
+                  <div class="ob-pf ok">Hors-ligne</div>
+                  <div class="ob-pf ok">IA correction</div>
+                  <div class="ob-pf ok">Classement</div>
+                </div>
+              </div>
+            </div>
+            <button class="ob-btn-cta" onclick="obFinish()">Commencer maintenant →</button>
+            <button class="ob-btn-ghost" onclick="obFinish()">Continuer sans compte</button>
+          </div>
+
+        </div><!-- /ob-slides-inner -->
+      </div><!-- /ob-slides-wrap -->
+
+      <!-- Bottom nav -->
+      <div id="ob-bottom">
+        <button class="ob-skip-btn" id="ob-skip" onclick="obSkip()">Ignorer</button>
+        <div class="ob-dots">
+          <div class="ob-dot active" onclick="obGoTo(0)"></div>
+          <div class="ob-dot" onclick="obGoTo(1)"></div>
+          <div class="ob-dot" onclick="obGoTo(2)"></div>
+          <div class="ob-dot" onclick="obGoTo(3)"></div>
+        </div>
+        <button class="ob-next-btn" id="ob-next" onclick="obNext()">›</button>
+      </div>
+    </div><!-- /ob-overlay -->
+
+    <script>
+      // ── Onboarding logic ──
+      (function() {
+        // Si déjà vu → on cache direct
+        if (localStorage.getItem('ms_onboarding_done')) {
+          var el = document.getElementById('ob-overlay');
+          if (el) el.classList.add('ob-hidden');
+          return;
+        }
+
+        var obCurrent = 0;
+        var obTotal = 4;
+        var obCountersDone = false;
+
+        function obGoTo(idx) {
+          obCurrent = idx;
+          document.getElementById('ob-slides-inner').style.transform = 'translateX(-' + (obCurrent * 100) + 'vw)';
+          document.querySelectorAll('.ob-dot').forEach(function(d,i){ d.classList.toggle('active', i === obCurrent); });
+          // animate slide content
+          var slide = document.getElementById('ob-s' + obCurrent);
+          slide.classList.remove('ob-slide-in');
+          void slide.offsetWidth;
+          slide.classList.add('ob-slide-in');
+          // last slide
+          var nextBtn = document.getElementById('ob-next');
+          var skipBtn = document.getElementById('ob-skip');
+          if (obCurrent === obTotal - 1) {
+            nextBtn.style.display = 'none';
+            skipBtn.textContent = '';
+          } else {
+            nextBtn.style.display = 'flex';
+            skipBtn.textContent = 'Ignorer';
+          }
+          if (obCurrent === 2) obAnimCounters();
+        }
+
+        function obNext() { if (obCurrent < obTotal - 1) obGoTo(obCurrent + 1); }
+        function obSkip() { obGoTo(obTotal - 1); }
+
+        function obFinish() {
+          localStorage.setItem('ms_onboarding_done', '1');
+          var el = document.getElementById('ob-overlay');
+          el.style.transition = 'opacity .5s ease';
+          el.style.opacity = '0';
+          setTimeout(function(){ el.classList.add('ob-hidden'); }, 500);
+        }
+
+        function obAnimCounters() {
+          // Anciens faux compteurs supprimés (12 400 élèves / 944 leçons / 4.8★ étaient fictifs).
+          // Fonction conservée vide pour ne pas casser l'appel existant à obGoTo(2).
+        }
+
+        // Swipe support
+        var obStartX = 0;
+        var inner = document.getElementById('ob-slides-inner');
+        inner.addEventListener('touchstart', function(e){ obStartX = e.touches[0].clientX; }, { passive: true });
+        inner.addEventListener('touchend', function(e){
+          var dx = obStartX - e.changedTouches[0].clientX;
+          if (Math.abs(dx) > 50) {
+            if (dx > 0 && obCurrent < obTotal - 1) obNext();
+            else if (dx < 0 && obCurrent > 0) obGoTo(obCurrent - 1);
+          }
+        }, { passive: true });
+
+        // Expose globals
+        window.obGoTo = obGoTo;
+        window.obNext = obNext;
+        window.obSkip = obSkip;
+        window.obFinish = obFinish;
+
+        // Init
+        obGoTo(0);
+      })();
+    </script>
+    <!-- ═══════════════════════════════════════════════
+         FIN ONBOARDING
+         ═══════════════════════════════════════════════ -->
+
+    <script>
+        // ===== LOGIQUE DU TIROIR =====
+        function toggleDrawer() {
+            // Surligner classe active
+            var _acc = JSON.parse(localStorage.getItem('userAccount') || '{}');
+            ['terminale','1ere'].forEach(function(g) {
+                var el = document.getElementById('drawer-' + g);
+                if (el) el.classList.toggle('active', g === (_acc.classe || 'terminale'));
+            });
+            const drawer = document.getElementById('side-drawer');
+            const overlay = document.getElementById('drawer-overlay');
+            const btn = document.getElementById('drawer-btn');
+            const isOpen = drawer.classList.contains('open');
+            if (isOpen) {
+                closeDrawer();
+            } else {
+                drawer.classList.add('open');
+                overlay.classList.add('open');
+                btn.classList.add('open');
+                updateDrawerInfo();
+            }
+        }
+
+        function closeDrawer() {
+            document.getElementById('side-drawer').classList.remove('open');
+            document.getElementById('drawer-overlay').classList.remove('open');
+            document.getElementById('drawer-btn').classList.remove('open');
+        }
+
+        function updateDrawerInfo() {
+            // Utilise Firebase si dispo, localStorage en fallback
+            const account = (window.getUserAccount && window.MS?.user)
+                ? window.getUserAccount()
+                : JSON.parse(localStorage.getItem('userAccount') || '{}');
+            const info = document.getElementById('drawer-user-info');
+            const roleLabel = account.role === 'eleve' ? '🎓 Élève' : account.role === 'parent' ? '👪 Parent' : account.role === 'prof' ? '📚 Prof' : account.role === 'autre' ? '🧩 Autre' : '';
+            const classeLabel = account.classe ? ' · ' + account.classe.charAt(0).toUpperCase() + account.classe.slice(1) : '';
+            info.innerHTML = `<strong>${account.user || 'Invité'}</strong><br>${roleLabel}${classeLabel}`;
+
+            // Marquer la classe active
+            document.querySelectorAll('[id^="drawer-"]').forEach(el => el.classList.remove('active'));
+            if (account.classe) {
+                const activeEl = document.getElementById('drawer-' + account.classe);
+                if (activeEl) activeEl.classList.add('active');
+            }
+        }
+
+        function toggleSerieMenu(classe) {
+            var autres = classe === 'terminale' ? '1ere' : 'terminale';
+            var menuAutre = document.getElementById('serie-menu-' + autres);
+            var arrowAutre = document.getElementById('arrow-' + autres);
+            if (menuAutre) menuAutre.style.display = 'none';
+            if (arrowAutre) arrowAutre.style.transform = '';
+
+            var menu = document.getElementById('serie-menu-' + classe);
+            var arrow = document.getElementById('arrow-' + classe);
+            if (!menu) return;
+            var isOpen = menu.style.display === 'block';
+            menu.style.display = isOpen ? 'none' : 'block';
+            if (arrow) arrow.style.transform = isOpen ? '' : 'rotate(90deg)';
+
+            // Surligner la série active
+            var acc = JSON.parse(localStorage.getItem('userAccount') || '{}');
+            if (acc.serie && acc.classe === classe) {
+                var pfx = classe === 'terminale' ? 'tle' : '1ere';
+                var activeId = 'drawer-' + pfx + '-' + acc.serie;
+                menu.querySelectorAll('.drawer-item').forEach(function(el) {
+                    el.style.background = '';
+                    el.style.color = '';
+                });
+                var activeEl = document.getElementById(activeId);
+                if (activeEl) { activeEl.style.background = '#8a2be222'; activeEl.style.color = '#8a2be2'; }
+            }
+        }
+
+        function switchGradeSerieFromDrawer(grade, serie) {
+            var acc = JSON.parse(localStorage.getItem('userAccount') || '{}');
+            acc.classe = grade;
+            acc.serie = serie;
+            localStorage.setItem('userAccount', JSON.stringify(acc));
+            closeDrawer();
+            if (typeof switchGrade === 'function') switchGrade(grade);
+        }
+
+        function switchGradeFromDrawer(grade) {
+            closeDrawer();
+            if (typeof switchGrade === 'function') switchGrade(grade);
+        }
+
+        // Swipe pour ouvrir le tiroir (glisser depuis le bord gauche)
+        let touchStartX = 0;
+        document.addEventListener('touchstart', e => { touchStartX = e.touches[0].clientX; }, { passive: true });
+        document.addEventListener('touchend', e => {
+            const diff = e.changedTouches[0].clientX - touchStartX;
+            const drawer = document.getElementById('side-drawer');
+            // Glisser vers la droite depuis le bord gauche → ouvrir
+            if (touchStartX < 30 && diff > 60) toggleDrawer();
+            // Glisser vers la gauche → fermer
+            if (drawer.classList.contains('open') && diff < -60) closeDrawer();
+        }, { passive: true });
+    </script>
+
+    <script>
+        if ('serviceWorker' in navigator) {
+            window.addEventListener('load', function() {
+                navigator.serviceWorker.register('/sw.js')
+                    .then(function(reg) { console.log('SW registered'); })
+                    .catch(function(err) { console.log('SW error:', err); });
+            });
+        }
+    </script>
+</body>
+</html>
