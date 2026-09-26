@@ -38166,6 +38166,28 @@ function showHistoriqueErreurs() {
 
 var _AI_DATES_KEY = 'ms_ai_exam_dates_generated';
 
+// 🔧 FIX (fonctionnalité totalement inopérante) : ces deux fonctions
+// étaient appelées plus bas (_checkAndGenerateAIDates, _generateAIExamDates)
+// mais n'étaient définies NULLE PART dans le code. La ligne
+// "_getCustomExamDates ? ..." plantait avec un ReferenceError à chaque
+// tentative (avalé silencieusement par le try/catch englobant), donc la
+// génération automatique des dates ne se déclenchait jamais. On les relie
+// au vrai stockage déjà utilisé par le compte à rebours BAC (ms_bac_dates,
+// voir getBacCountdown()/saveBacDates() plus haut), pour que les dates
+// générées par l'IA alimentent réellement l'affichage existant.
+function _getCustomExamDates() {
+    return Object.entries(_safeGet('ms_bac_dates', {})).map(function(entry) {
+        return { matiere: entry[0], date: entry[1] };
+    });
+}
+function _saveCustomExamDates(dates) {
+    var overrides = _safeGet('ms_bac_dates', {});
+    (dates || []).forEach(function(d) {
+        if (d && d.matiere && d.date) overrides[d.matiere] = d.date;
+    });
+    return _safeSet('ms_bac_dates', overrides);
+}
+
 // Déclenché au login si dates pas encore générées pour ce pays/année
 function _checkAndGenerateAIDates() {
     try {
@@ -38220,18 +38242,16 @@ Important :
 - Si tu n'es pas sûr d'une date précise, donne une date approximative réaliste
 - Ajoute une note dans le dernier objet : {"note": "Dates approximatives — vérifiez sur le site officiel du Ministère"}`;
 
-        var response = await fetch('https://api.anthropic.com/v1/messages', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-                model: 'claude-sonnet-4-20250514',
-                max_tokens: 1000,
-                messages: [{ role: 'user', content: prompt }]
-            })
-        });
-
-        var data = await response.json();
-        var text = (data.content || []).map(function(b) { return b.text || ''; }).join('');
+        // 🔧 FIX (fonctionnalité totalement inopérante) : cet appel visait
+        // directement api.anthropic.com SANS aucune clé d'API — la requête
+        // échouait à 100% des essais (401), silencieusement avalée par le
+        // catch(e) plus bas. On passe par callClaude(), qui utilise le
+        // proxy serveur GROQ_PROXY_URL déjà en place partout ailleurs.
+        var text = await callClaude(
+            "Réponds uniquement en JSON valide, sans aucun texte avant ou après, sans backticks.",
+            prompt,
+            { maxTokens: 1000, temperature: 0.3 }
+        );
         text = text.replace(/```json|```/g, '').trim();
         var parsed = JSON.parse(text);
 
@@ -38282,7 +38302,7 @@ function _showAIDatesConfirmation(dates, paysLabel, note) {
         ${note ? '<div style="font-size:0.6rem;color:#f59e0b;margin-top:8px;font-style:italic;">⚠️ ' + note + '</div>' : ''}
         <div style="display:flex;gap:8px;margin-top:12px;">
             <button onclick="_confirmAIDates()" style="flex:1;padding:10px;background:#38bdf222;border:1.5px solid #38bdf8;border-radius:12px;color:#38bdf8;font-size:0.75rem;font-weight:800;cursor:pointer;">✅ C'est bon</button>
-            <button onclick="showExamDatesConfig();document.getElementById('ai-dates-banner').remove()" style="flex:1;padding:10px;background:#111;border:1px solid #333;border-radius:12px;color:#666;font-size:0.75rem;cursor:pointer;">✏️ Modifier</button>
+            <button onclick="document.getElementById('ai-dates-banner').remove();editBacDates()" style="flex:1;padding:10px;background:#111;border:1px solid #333;border-radius:12px;color:#666;font-size:0.75rem;cursor:pointer;">✏️ Modifier</button>
             <button onclick="document.getElementById('ai-dates-banner').remove()" style="padding:10px 12px;background:transparent;border:none;color:#444;font-size:0.75rem;cursor:pointer;">✕</button>
         </div>
     `;
@@ -38928,20 +38948,19 @@ texte...
 texte...`;
 
     try {
-        const response = await fetch('https://api.anthropic.com/v1/messages', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-                model: 'claude-sonnet-4-20250514',
-                max_tokens: 1000,
-                messages: [{ role: 'user', content: prompt }]
-            })
-        });
+        // 🔧 FIX (fonctionnalité totalement inopérante) : cet appel visait
+        // directement api.anthropic.com SANS aucune clé d'API — la requête
+        // échouait à 100% des essais (401), toujours rattrapée par le
+        // catch ci-dessous qui affichait "Erreur de connexion". On passe
+        // par callClaude(), qui utilise le proxy serveur GROQ_PROXY_URL
+        // déjà en place (clé gardée côté serveur, jamais exposée).
+        const texte = await callClaude(
+            "Tu es un professeur de philosophie préparant un élève de Terminale au BAC français (programme ivoirien/CEDEAO). Réponds uniquement avec la dissertation demandée, sans commentaire ni préambule.",
+            prompt,
+            { maxTokens: 2000, temperature: 0.7 }
+        );
 
         clearInterval(fakeProgress);
-
-        const data = await response.json();
-        const texte = data.content && data.content[0] ? data.content[0].text : '';
 
         if (!texte) throw new Error('Réponse vide');
 

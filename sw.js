@@ -20,6 +20,11 @@ const PRECACHE_URLS = [
     '/style.css',
     '/data.js',
     '/script.js',
+    // 🔧 FIX (hors-ligne) : firebase-config.js est chargé par index.html
+    // (auth + Firestore) mais n'était pas précaché — au 1er lancement
+    // hors-ligne l'app démarrait sans jamais pouvoir authentifier
+    // l'utilisateur ni lire/écrire ses données.
+    '/firebase-config.js',
     '/manifest.json',
     '/bg-pattern-dark.svg',
     '/bg-pattern-light.svg',
@@ -29,9 +34,22 @@ const PRECACHE_URLS = [
 
 self.addEventListener('install', (event) => {
     event.waitUntil(
-        caches.open(CACHE_NAME)
-            .then(cache => cache.addAll(PRECACHE_URLS))
-            .catch(err => console.warn('Précache partiel (normal si une icône manque) :', err))
+        caches.open(CACHE_NAME).then(cache =>
+            // 🔧 FIX (hors-ligne cassé silencieusement) : cache.addAll() est
+            // TOUT-OU-RIEN — si un seul fichier de PRECACHE_URLS échoue
+            // (404, ex: une icône pas encore déployée), la promesse entière
+            // rejette et RIEN n'est mis en cache, pas même index.html/
+            // style.css/script.js. Résultat : le mode hors-ligne ne
+            // fonctionnait jamais dès qu'un seul asset manquait, sans
+            // qu'aucune erreur visible n'apparaisse. On précache chaque
+            // fichier séparément avec Promise.allSettled : un fichier
+            // manquant n'empêche plus les autres d'être mis en cache.
+            Promise.allSettled(
+                PRECACHE_URLS.map(url => cache.add(url).catch(err =>
+                    console.warn('Précache impossible pour', url, ':', err)
+                ))
+            )
+        )
     );
     self.skipWaiting();
 });
